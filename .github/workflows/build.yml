@@ -1,0 +1,29 @@
+name: Build Windows Installer
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.10.2' }
+      - name: Cosmetics-Mod bauen
+        run: gradle build
+        working-directory: mod
+      - name: Mod ins Launcher-Paket kopieren
+        run: |
+          New-Item -ItemType Directory -Force resources | Out-Null
+          Copy-Item mod/build/libs/monhax-cosmetics-1.0.0.jar resources/monhax-cosmetics.jar
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm install
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MonHax-Launcher-Setup
+          path: dist/*.exe
