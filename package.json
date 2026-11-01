@@ -1,0 +1,45 @@
+{
+  "name": "monhax-launcher",
+  "version": "1.0.0",
+  "description": "Minecraft Launcher mit Modpacks, Fabric, CurseForge/Modrinth, Shadern und Cosmetics",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win"
+  },
+  "dependencies": {
+    "minecraft-launcher-core": "^3.17.0",
+    "msmc": "^5.0.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "gg.monhax.launcher",
+    "productName": "MonHax Launcher",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources",
+        "to": ".",
+        "filter": [
+          "*.jar"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "monhax_cosmetics",
+  "version": "${version}",
+  "name": "MonHax Cosmetics",
+  "description": "Zeigt die im MonHax Launcher angezogenen Cosmetics im Spiel an.",
+  "authors": ["MonHax"],
+  "environment": "client",
+  "mixins": ["monhax-cosmetics.mixins.json"],
+  "depends": { "fabricloader": ">=0.16.0", "minecraft": "1.21.1", "java": ">=21" }
+}
