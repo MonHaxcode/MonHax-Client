@@ -39,9 +39,10 @@ $('#acc').addEventListener('click', () => go('settings'));
 
 async function refreshAccount() {
   const a = await api.call('account');
+  S.acc = a;
   $('#accName').textContent = a.name;
   $('#accAv').textContent = (a.name || 'M')[0].toUpperCase();
-  $('#accState').innerHTML = `<u></u>${a.mode === 'microsoft' ? 'Online' : 'Offline'}`;
+  $('#accState').innerHTML = `<u></u>${a.mode === 'microsoft' ? 'Online' : 'Nicht angemeldet'}`;
   $('#acc').classList.toggle('ms', a.mode === 'microsoft');
   return a;
 }
@@ -50,8 +51,9 @@ async function refreshAccount() {
 const refreshPlay = () => $$('.play-btn').forEach((b) => { b.disabled = S.running; const t = b.querySelector('span'); if (t) t.textContent = S.running ? 'Läuft…' : 'Spielen'; });
 const startGame = safe(async (id) => {
   if (S.running) return;
+  if (!S.acc || S.acc.mode !== 'microsoft') { showLogin(); return; }
   S.running = true; S.logs = []; refreshPlay();
-  try { await api.call('launch', id); toast('Minecraft wurde gestartet'); }
+  try { await api.call('launch', id); toast('Minecraft wurde gestartet'); refreshPlay(); }
   catch (e) { S.running = false; refreshPlay(); throw e; }
 });
 
@@ -95,7 +97,8 @@ pages.library = async () => {
         <div class="tabs">${Object.keys(KIND_LABEL).map((k) => `<button data-tab="${k}" class="${S.tab === k ? 'on' : ''}">${KIND_LABEL[k]}</button>`).join('')}</div>
         <div id="files"></div>
         <div class="tools">
-          <button class="ghost" id="add">Mehr hinzufügen</button>
+          <button class="ghost" id="add">Online suchen</button>
+          <button class="ghost" id="imp">Datei hinzufügen</button>
           <button class="ghost" id="folder">Ordner öffnen</button>
           <button class="ghost danger" id="del">Löschen</button>
         </div>
@@ -109,10 +112,11 @@ pages.library = async () => {
   $$('.tabs button', el).forEach((b) => (b.onclick = () => { S.tab = b.dataset.tab; pages.library(); }));
   $('#play').onclick = () => startGame(cur.id);
   $('#add').onclick = () => { S.disc.inst = cur.id; S.disc.kind = S.tab; S.disc.res = null; go('discover'); };
+  $('#imp').onclick = safe(async () => { const n = await api.call('files:import', cur.id, S.tab); if (n) { toast(`${n} Datei${n > 1 ? 'en' : ''} hinzugefügt`); pages.library(); } });
   $('#folder').onclick = () => api.call('instances:open', cur.id);
   $('#del').onclick = safe(async () => { if (!confirm(`„${cur.name}" wirklich löschen? Alle Mods und Welten darin gehen verloren.`)) return; await api.call('instances:delete', cur.id); toast('Modpack gelöscht'); pages.library(); });
   const files = await api.call('files', cur.id, S.tab);
-  $('#files').innerHTML = files.map((f) => `<div class="file"><b>${esc(f.name)}</b><small>${fmtSize(f.size)}</small><button data-rm="${esc(f.name)}" title="Entfernen">Entfernen</button></div>`).join('') || `<p class="empty">Hier ist noch nichts drin. Über „Mehr hinzufügen" findest du ${KIND_LABEL[S.tab]}.</p>`;
+  $('#files').innerHTML = files.map((f) => `<div class="file"><b>${esc(f.name)}</b><small>${fmtSize(f.size)}</small><button data-rm="${esc(f.name)}" title="Entfernen">Entfernen</button></div>`).join('') || `<p class="empty">Hier ist noch nichts drin. Über „Online suchen" oder „Datei hinzufügen" kommst du an ${KIND_LABEL[S.tab]}.</p>`;
   $$('[data-rm]').forEach((b) => (b.onclick = safe(async () => { await api.call('files:remove', cur.id, S.tab, b.dataset.rm); pages.library(); })));
 };
 
@@ -122,7 +126,12 @@ api.on('log', (m) => {
   const p = $('#log');
   if (p) { p.append(document.createTextNode(m + '\n')); p.scrollTop = p.scrollHeight; }
 });
-api.on('progress', (p) => { const b = $('#pb'); if (b && p.total) b.style.width = Math.min(100, (p.task / p.total) * 100) + '%'; });
+api.on('progress', (p) => {
+  if (!p.total) return;
+  const pct = Math.min(100, Math.round((p.task / p.total) * 100));
+  const b = $('#pb'); if (b) b.style.width = pct + '%';
+  if (S.running) $$('.play-btn span').forEach((t) => (t.textContent = `Lädt ${pct}%`));
+});
 api.on('closed', (code) => { S.running = false; refreshPlay(); toast(code === 0 ? 'Minecraft wurde beendet' : `Minecraft wurde beendet (Code ${code})`, code !== 0); if (S.page === 'library') pages.library(); });
 
 // Neues Modpack
@@ -285,9 +294,8 @@ pages.settings = async () => {
     <h2>Einstellungen</h2>
     <div class="form set">
       <h3>Konto</h3>
-      <p style="color:var(--muted)">${a.mode === 'microsoft' ? `Angemeldet als ${esc(a.name)}.` : 'Du spielst offline. Online-Server brauchen ein Microsoft-Konto.'}</p>
-      <div class="acts" style="margin:0">${a.mode === 'microsoft' ? '<button class="ghost" id="out">Abmelden</button>' : '<button class="btn" id="ms">Mit Microsoft anmelden</button>'}</div>
-      <label>Offline-Name<input id="sOff" value="${esc(s.offlineName)}"></label>
+      <p style="color:var(--muted)">Angemeldet als ${esc(a.name)}.</p>
+      <div><button class="ghost" id="out">Abmelden</button></div>
     </div>
     <div class="form set">
       <h3>CurseForge</h3>
@@ -295,13 +303,27 @@ pages.settings = async () => {
     </div>
     <div class="form set">
       <h3>Java</h3>
-      <label>Pfad zu java.exe (Minecraft 26.x braucht Java 25, 1.21.1 braucht Java 21)<input id="sJava" value="${esc(s.java)}"></label>
+      <label>Eigener Java-Pfad (leer lassen: der Launcher lädt die passende Java-Version selbst)<input id="sJava" value="${esc(['auto', 'java'].includes(s.java) ? '' : s.java)}"></label>
       <div><button class="btn" id="save">Speichern</button></div>
     </div>`;
-  $('#save').onclick = safe(async () => { await api.call('settings:set', { cfKey: $('#sKey').value, java: $('#sJava').value, offlineName: $('#sOff').value }); await refreshAccount(); toast('Gespeichert'); });
-  if ($('#ms')) $('#ms').onclick = safe(async () => { await api.call('login:ms'); toast('Angemeldet'); pages.settings(); });
-  if ($('#out')) $('#out').onclick = safe(async () => { await api.call('logout'); pages.settings(); });
+  $('#save').onclick = safe(async () => { await api.call('settings:set', { cfKey: $('#sKey').value, java: $('#sJava').value }); toast('Gespeichert'); });
+  $('#out').onclick = safe(async () => { await api.call('logout'); await refreshAccount(); showLogin(); });
 };
 
-refreshAccount();
-go('home');
+// ───────────── Anmeldung und Start ─────────────
+const showLogin = () => ($('#login').hidden = false);
+$('#loginBtn').onclick = safe(async () => {
+  const b = $('#loginBtn');
+  b.disabled = true; b.textContent = 'Warte auf Anmeldung…';
+  try {
+    await api.call('login:ms');
+    await refreshAccount();
+    $('#login').hidden = true;
+    toast('Angemeldet');
+    go('home');
+  } finally { b.disabled = false; b.textContent = 'Mit Microsoft anmelden'; }
+});
+(async () => {
+  try { const a = await api.call('account:restore'); await refreshAccount(); if (a.mode !== 'microsoft') showLogin(); } catch { showLogin(); }
+  go('home');
+})();

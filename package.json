@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "Minecraft Launcher mit Modpacks, Fabric, CurseForge/Modrinth, Shadern und Cosmetics",
   "main": "main.js",
-  "author": "MonHax",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win --publish never"
@@ -42,5 +41,6 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     }
-  }
+  },
+  "author": "MonHax"
 }

@@ -18,9 +18,9 @@ Lege `renderer/assets/hero.png` ab und ergänze in `renderer/style.css` bei `.ar
 `background:url(assets/hero.png) center/cover`, dann ersetzt es die Zeichnung auf der Startseite.
 
 ## Einstellungen
-- Java-Pfad (Java 21 für 1.21.1, Java 25 für 26.x)
+- Java: Der Launcher lädt die passende Java-Version selbst. Ein eigener Pfad ist nur optional.
 - CurseForge-API-Key (console.curseforge.com), Modrinth geht ohne Key
-- Microsoft-Login für Online-Server, Skin-Upload und Mojang-Capes
+- Microsoft-Login ist Pflicht (Minecraft Java muss auf dem Konto liegen). Du bleibst angemeldet.
 
 ## Cosmetics
 - Skins: 64×64 PNG. Capes: 64×32 PNG.

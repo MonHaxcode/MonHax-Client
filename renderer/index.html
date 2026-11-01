@@ -17,7 +17,7 @@
   </header>
   <div class="shell">
     <aside>
-      <button id="acc" class="accb"><i class="av" id="accAv">M</i><div><b id="accName">Offline</b><small id="accState"><u></u>Offline</small></div></button>
+      <button id="acc" class="accb"><i class="av" id="accAv">M</i><div><b id="accName">Nicht angemeldet</b><small id="accState"><u></u>Nicht angemeldet</small></div></button>
       <nav>
         <button data-page="home" class="on"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Startseite</button>
         <button data-page="library"><svg viewBox="0 0 24 24"><path d="M12 2l9 5v10l-9 5-9-5V7zM12 12l9-5M12 12v10M12 12L3 7" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>Installationen</button>
@@ -73,6 +73,11 @@
     <label class="chk" id="uSlimW"><input type="checkbox" id="uSlim"> Slim-Modell (nur Skins)</label>
     <div class="acts end"><button class="ghost" id="uCancel">Abbrechen</button><button class="btn" id="uOk">Laden</button></div>
   </dialog>
+  <div id="login" hidden>
+    <div class="lbox"><div class="lm">MonHax</div><h2>Willkommen</h2>
+      <p>Melde dich mit deinem Microsoft-Konto an, auf dem Minecraft Java Edition liegt.</p>
+      <button class="btn lbtn" id="loginBtn">Mit Microsoft anmelden</button></div>
+  </div>
   <div id="toast"></div>
   <script src="app.js"></script>
 </body>

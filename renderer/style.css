@@ -124,3 +124,8 @@ dialog::backdrop{background:rgba(0,0,0,.65)}
 #toast.show{opacity:1;transform:none}
 #toast.bad{border-color:var(--bad)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+#login{position:fixed;inset:38px 0 0 0;z-index:20;display:grid;place-items:center;background:radial-gradient(ellipse at 50% 100%,#4a17a8 0,#1a0b3d 45%,#07040f 100%)}
+.lbox{text-align:center;max-width:420px;display:flex;flex-direction:column;gap:14px;align-items:center}
+.lm{font-size:46px;font-weight:800;font-style:italic;color:var(--p2)}
+.lbox p{color:var(--muted)}
+.lbtn{padding:14px 28px;font-size:16px;margin-top:6px}

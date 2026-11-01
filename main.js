@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
@@ -21,11 +21,11 @@ const KINDS = { mods: 'mods', shaders: 'shaderpacks', resourcepacks: 'resourcepa
 
 const readJson = async (f, d) => { try { return JSON.parse(await fsp.readFile(f, 'utf8')); } catch { return d; } };
 const writeJson = (f, v) => fsp.writeFile(f, JSON.stringify(v, null, 2));
-const getCfg = async () => ({ cfKey: '', java: 'java', offlineName: 'Player', skins: [], activeSkin: null, capes: [], activeCape: null, ...(await readJson(CFG, {})) });
+const getCfg = async () => ({ cfKey: '', java: 'auto', offlineName: 'Player', msRefresh: '', skins: [], activeSkin: null, capes: [], activeCape: null, ...(await readJson(CFG, {})) });
 const saveCfg = (c) => writeJson(CFG, c);
 const getDb = () => readJson(DB, []);
 
-const session = { ms: null, name: null };
+const session = { ms: null, name: null, t: 0 };
 let win = null;
 let running = false;
 
@@ -170,6 +170,70 @@ const h = (ch, fn) => ipcMain.handle(ch, async (_e, ...a) => {
 const send = (c, d) => { if (win && !win.isDestroyed()) win.webContents.send(c, d); };
 const mcHeaders = (json) => ({ Authorization: 'Bearer ' + session.ms.access_token, ...(json ? { 'Content-Type': 'application/json' } : {}) });
 
+// ───────────── Konto (Microsoft) ─────────────
+const seal = (t) => (safeStorage.isEncryptionAvailable() ? 'enc:' + safeStorage.encryptString(t).toString('base64') : 'raw:' + t);
+const unseal = (s) => {
+  try {
+    if (!s) return '';
+    if (s.startsWith('enc:')) return safeStorage.decryptString(Buffer.from(s.slice(4), 'base64'));
+    return s.startsWith('raw:') ? s.slice(4) : '';
+  } catch { return ''; }
+};
+const acct = () => (session.ms ? { mode: 'microsoft', name: session.name } : { mode: 'none', name: 'Nicht angemeldet' });
+async function setSession(x) {
+  const mc = await x.getMinecraft();
+  session.ms = mc.mclc();
+  session.name = mc.profile.name;
+  session.t = Date.now();
+  const c = await getCfg();
+  c.msRefresh = seal(x.save());
+  await saveCfg(c);
+}
+async function msRestore() {
+  const c = await getCfg();
+  const tok = unseal(c.msRefresh);
+  if (!tok) return false;
+  try { await setSession(await new Auth('select_account').refresh(tok)); return true; } catch { return false; }
+}
+
+// ───────────── Java automatisch laden (Mojang-Runtime) ─────────────
+const RUNTIME_INDEX = 'https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json';
+async function ensureJava(mc, cfg) {
+  if (cfg.java && !['auto', 'java', ''].includes(cfg.java)) return cfg.java;
+  const man = await getJson('https://piston-meta.mojang.com/mc/game/version_manifest_v2.json');
+  const entry = man.versions.find((v) => v.id === mc);
+  if (!entry) throw new Error(`Unbekannte Minecraft-Version ${mc}`);
+  const vj = await getJson(entry.url);
+  const comp = (vj.javaVersion && vj.javaVersion.component) || 'jre-legacy';
+  const dir = path.join(ROOT, 'runtime', comp);
+  const exe = path.join(dir, 'bin', 'javaw.exe');
+  const ok = path.join(dir, '.ok');
+  if (fs.existsSync(ok) && fs.existsSync(exe)) return exe;
+  send('log', `Lade Java (${comp}), das passiert nur einmal…`);
+  const idx = await getJson(RUNTIME_INDEX);
+  const list = idx['windows-x64'] && idx['windows-x64'][comp];
+  if (!list || !list.length) throw new Error(`Java-Runtime ${comp} nicht gefunden. Trage in den Einstellungen einen Java-Pfad ein.`);
+  const mf = await getJson(list[0].manifest.url);
+  const queue = Object.entries(mf.files).filter(([, f]) => f.type === 'file');
+  const total = queue.length;
+  let done = 0;
+  const worker = async () => {
+    while (queue.length) {
+      const [rel, f] = queue.shift();
+      const dest = path.join(dir, rel);
+      await fsp.mkdir(path.dirname(dest), { recursive: true });
+      const raw = f.downloads.raw;
+      if (!(fs.existsSync(dest) && fs.statSync(dest).size === raw.size)) await download(raw.url, dest);
+      done++;
+      if (done % 20 === 0) send('progress', { type: 'java', task: done, total });
+    }
+  };
+  await Promise.all(Array.from({ length: 8 }, worker));
+  if (!fs.existsSync(exe)) throw new Error('Java konnte nicht installiert werden.');
+  await fsp.writeFile(ok, 'ok');
+  return exe;
+}
+
 h('versions', async () => {
   const m = await getJson('https://piston-meta.mojang.com/mc/game/version_manifest_v2.json');
   return m.versions.filter((v) => v.type === 'release').slice(0, 80).map((v) => v.id);
@@ -218,6 +282,19 @@ h('files:remove', async (id, kind, name) => {
   await fsp.rm(path.join(INST, id, KINDS[kind], name), { recursive: true, force: true });
 });
 
+h('files:import', async (id, kind) => {
+  const names = { mods: 'Mods (.jar)', shaders: 'Shader (.zip)', resourcepacks: 'Ressourcenpakete (.zip)' };
+  const r = await dialog.showOpenDialog(win, {
+    filters: [{ name: names[kind], extensions: kind === 'mods' ? ['jar'] : ['zip'] }],
+    properties: ['openFile', 'multiSelections'],
+  });
+  if (r.canceled) return 0;
+  const dest = path.join(INST, id, KINDS[kind]);
+  await fsp.mkdir(dest, { recursive: true });
+  for (const f of r.filePaths) await fsp.copyFile(f, path.join(dest, path.basename(f)));
+  return r.filePaths.length;
+});
+
 h('search', async (o) => {
   const cfg = await getCfg();
   const inst = (await getDb()).find((i) => i.id === o.id);
@@ -245,18 +322,24 @@ h('install:base', async (id) => {
 });
 
 // Account
-h('account', async () => {
-  const cfg = await getCfg();
-  return session.ms ? { mode: 'microsoft', name: session.name } : { mode: 'offline', name: cfg.offlineName };
-});
+h('account', () => acct());
+h('account:restore', async () => { if (!session.ms) await msRestore(); return acct(); });
 h('login:ms', async () => {
-  const x = await new Auth('select_account').launch('electron');
-  const mc = await x.getMinecraft();
-  session.ms = mc.mclc();
-  session.name = mc.profile.name;
-  return { mode: 'microsoft', name: session.name };
+  try {
+    const x = await new Auth('select_account').launch('electron');
+    await setSession(x);
+  } catch (e) {
+    const m = String((e && e.message) || e);
+    if (/cancel|closed/i.test(m)) throw new Error('Anmeldung abgebrochen.');
+    if (/minecraft|profile|entitle|owns/i.test(m)) throw new Error('Auf diesem Konto wurde kein Minecraft Java gefunden.');
+    throw new Error('Anmeldung fehlgeschlagen: ' + m);
+  }
+  return acct();
 });
-h('logout', () => { session.ms = null; session.name = null; });
+h('logout', async () => {
+  session.ms = null; session.name = null;
+  const c = await getCfg(); c.msRefresh = ''; await saveCfg(c);
+});
 
 // Einstellungen
 h('settings:get', async () => { const c = await getCfg(); return { cfKey: c.cfKey, java: c.java, offlineName: c.offlineName }; });
@@ -421,10 +504,11 @@ h('launch', async (id) => {
   const cfg = await getCfg();
   const inst = (await getDb()).find((i) => i.id === id);
   if (!inst) throw new Error('Modpack nicht gefunden');
+  if (!session.ms) throw new Error('Melde dich zuerst mit Microsoft an.');
+  if (Date.now() - session.t > 6 * 3600 * 1000) await msRestore();
   const dir = path.join(INST, id);
-  if (!session.ms) await applySkinPack(dir, cfg);
   await prepareCosmetics(dir, cfg, inst);
-  const auth = session.ms || Authenticator.getAuth(cfg.offlineName || 'Player');
+  const auth = session.ms;
   const l = new Client();
   l.on('debug', (m) => send('log', String(m)));
   l.on('data', (m) => send('log', String(m).trimEnd()));
@@ -432,10 +516,11 @@ h('launch', async (id) => {
   l.on('close', (code) => { running = false; send('closed', code); });
   running = true;
   try {
+    const javaPath = await ensureJava(inst.mc, cfg);
     const proc = await l.launch({
       authorization: auth,
       root: ROOT,
-      javaPath: cfg.java || 'java',
+      javaPath,
       version: { number: inst.mc, type: 'release', ...(inst.customId ? { custom: inst.customId } : {}) },
       memory: { max: `${inst.ram}M`, min: '1024M' },
       overrides: { gameDirectory: dir },
